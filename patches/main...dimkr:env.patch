@@ -1,0 +1,306 @@
+From 96804724cc5301d780b3c6fda60b5674bac9cc24 Mon Sep 17 00:00:00 2001
+From: Dima Krasner <dima@dimakrasner.com>
+Date: Sun, 24 Jul 2022 20:55:56 +0300
+Subject: [PATCH] allow environment variables to override config.h
+
+---
+ Makefile     |   1 +
+ config.def.h |   8 +-
+ dwl.c        |   6 +-
+ env.c        | 218 +++++++++++++++++++++++++++++++++++++++++++++++++++
+ 4 files changed, 228 insertions(+), 5 deletions(-)
+ create mode 100644 env.c
+
+diff --git a/Makefile b/Makefile
+index 6a8323bf..59d5ef9f 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,6 +24,7 @@ all: dwl
+ dwl: dwl.o util.o
+ 	$(CC) dwl.o util.o $(LDLIBS) $(LDFLAGS) $(DWLCFLAGS) -o $@
+ dwl.o: dwl.c config.mk config.h client.h xdg-shell-protocol.h wlr-layer-shell-unstable-v1-protocol.h idle-protocol.h
++dwl.o: env.c
+ util.o: util.c util.h
+ 
+ # wayland scanner rules to generate .h / .c files
+diff --git a/config.def.h b/config.def.h
+index 29c6dbf8..8ad5e3e7 100644
+--- a/config.def.h
++++ b/config.def.h
+@@ -1,10 +1,10 @@
+ /* appearance */
+ static const int sloppyfocus        = 1;  /* focus follows mouse */
+-static const unsigned int borderpx  = 1;  /* border pixel of windows */
++static unsigned int borderpx  = 1;  /* border pixel of windows */
+ static const int lockfullscreen     = 1;  /* 1 will force focus on the fullscreen window */
+-static const float rootcolor[]      = {0.3, 0.3, 0.3, 1.0};
+-static const float bordercolor[]    = {0.5, 0.5, 0.5, 1.0};
+-static const float focuscolor[]     = {1.0, 0.0, 0.0, 1.0};
++static float rootcolor[]      = {0.3, 0.3, 0.3, 1.0};
++static float bordercolor[]    = {0.5, 0.5, 0.5, 1.0};
++static float focuscolor[]     = {1.0, 0.0, 0.0, 1.0};
+ /* To conform the xdg-protocol, set the alpha to zero to restore the old behavior */
+ static const float fullscreen_bg[]  = {0.1, 0.1, 0.1, 1.0};
+ 
+diff --git a/dwl.c b/dwl.c
+index 7886b644..f280d77c 100644
+--- a/dwl.c
++++ b/dwl.c
+@@ -377,6 +377,8 @@ static Atom netatom[NetLast];
+ /* attempt to encapsulate suck into one file */
+ #include "client.h"
+ 
++#include "env.c"
++
+ /* compile-time check if all tags fit into an unsigned int bit array. */
+ struct NumTags { char limitexceeded[LENGTH(tags) > 31 ? -1 : 1]; };
+ 
+@@ -655,7 +657,6 @@ buttonpress(struct wl_listener *listener, void *data)
+ 		/* Don't focus unmanaged clients */
+ 		if (c && !client_is_unmanaged(c))
+ 			focusclient(c, 1);
+-
+ 		keyboard = wlr_seat_get_keyboard(seat);
+ 		mods = keyboard ? wlr_keyboard_get_modifiers(keyboard) : 0;
+ 		for (b = buttons; b < END(buttons); b++) {
+@@ -1035,6 +1036,8 @@ createpointer(struct wlr_input_device *device)
+ 			libinput_device_config_accel_set_profile(libinput_device, accel_profile);
+ 			libinput_device_config_accel_set_speed(libinput_device, accel_speed);
+ 		}
++
++		inputconfig(libinput_device);
+ 	}
+ 
+ 	wlr_cursor_attach_input_device(cursor, device);
+@@ -2599,6 +2602,7 @@ main(int argc, char *argv[])
+ 	/* Wayland requires XDG_RUNTIME_DIR for creating its communications socket */
+ 	if (!getenv("XDG_RUNTIME_DIR"))
+ 		die("XDG_RUNTIME_DIR must be set");
++	loadtheme();
+ 	setup();
+ 	run(startup_cmd);
+ 	cleanup();
+diff --git a/env.c b/env.c
+new file mode 100644
+index 00000000..3ffbaf55
+--- /dev/null
++++ b/env.c
+@@ -0,0 +1,218 @@
++static int
++isenabled(const char *val, int def)
++{
++	return ((def && (!val || !val[0] || (val[0] != '0'))) || (!def && (val && val[0] && (val[0] != '0'))));
++}
++
++static void
++setclickmethod(struct libinput_device *libinput_device)
++{
++	const char *val;
++	long l;
++	char *end = NULL;
++	enum libinput_config_click_method method = LIBINPUT_CONFIG_CLICK_METHOD_NONE;
++
++	val = getenv("LIBINPUT_DEFAULT_CLICK_METHOD");
++	if (!val || !val[0])
++		return;
++
++	errno = 0;
++	l = strtol(val, &end, 10);
++	if (errno || (end && *end))
++		return;
++
++	libinput_device_config_click_set_method(libinput_device,
++		(enum libinput_config_click_method)l);
++}
++
++static void
++settap(struct libinput_device *libinput_device)
++{
++	const char *val;
++	enum libinput_config_tap_state state = LIBINPUT_CONFIG_TAP_DISABLED;
++
++	val = getenv("LIBINPUT_DEFAULT_TAP");
++	if (val) {
++		if (!val[0])
++			return;
++
++		libinput_device_config_tap_set_enabled(libinput_device,
++			isenabled(val, 1) ? LIBINPUT_CONFIG_TAP_ENABLED :
++				LIBINPUT_CONFIG_TAP_DISABLED);
++	} else if (tap_to_click && libinput_device_config_tap_get_finger_count(libinput_device))
++		libinput_device_config_tap_set_enabled(libinput_device,
++			LIBINPUT_CONFIG_TAP_ENABLED);
++}
++
++static void
++settapanddrag(struct libinput_device *libinput_device)
++{
++	const char *val;
++
++	val = getenv("LIBINPUT_DEFAULT_DRAG");
++	if (val && val[0])
++		libinput_device_config_tap_set_drag_enabled(libinput_device,
++			isenabled(val, 1) ? LIBINPUT_CONFIG_DRAG_ENABLED :
++				LIBINPUT_CONFIG_DRAG_DISABLED);
++}
++
++static void
++setnaturalscroll(struct libinput_device *libinput_device)
++{
++	const char *val;
++	enum libinput_config_status status;
++
++	val = getenv("LIBINPUT_DEFAULT_NATURAL_SCROLL");
++	if (val && val[0])
++		libinput_device_config_scroll_set_natural_scroll_enabled(
++			libinput_device, isenabled(val, 0));
++	else if (!val && libinput_device_config_scroll_has_natural_scroll(libinput_device))
++		libinput_device_config_scroll_set_natural_scroll_enabled(
++			libinput_device, natural_scrolling);
++}
++
++static void
++setaccelprofile(struct libinput_device *libinput_device)
++{
++	const char *val;
++	double profile;
++	char *end = NULL;
++	enum libinput_config_status status;
++
++	val = getenv("LIBINPUT_DEFAULT_ACCELERATION_PROFILE");
++	if (!val || !val[0])
++		return;
++
++	errno = 0;
++	profile = strtod(val, &end);
++	if (errno || (end && *end))
++		return;
++
++	libinput_device_config_accel_set_profile(libinput_device,
++		(enum libinput_config_accel_profile)profile);
++}
++
++static void
++setaccelspeed(struct libinput_device *libinput_device)
++{
++	const char *val;
++	double accel = 0;
++	char *end = NULL;
++
++	val = getenv("LIBINPUT_DEFAULT_ACCELERATION");
++	if (!val || !val[0])
++		return;
++
++	errno = 0;
++	accel = strtod(val, &end);
++	if (errno || (end && *end) || (accel < -1) || (accel > 1))
++		return;
++
++	libinput_device_config_accel_set_speed(libinput_device, accel);
++}
++
++static void
++setscrollmethod(struct libinput_device *libinput_device)
++{
++	const char *val;
++	long l;
++	char *end = NULL;
++	enum libinput_config_status status;
++
++	val = getenv("LIBINPUT_DEFAULT_SCROLL_METHOD");
++	if (!val || !val[0])
++		return;
++
++	errno = 0;
++	l = strtol(val, &end, 10);
++	if (errno || (end && *end))
++		return;
++
++	libinput_device_config_scroll_set_method(libinput_device,
++		(enum libinput_config_scroll_method)l);
++}
++
++static void
++setdwt(struct libinput_device *libinput_device)
++{
++	const char *val;
++
++	val = getenv("LIBINPUT_DEFAULT_DISABLE_WHILE_TYPING");
++	if (val && val[0])
++		libinput_device_config_dwt_set_enabled(libinput_device,
++			isenabled(val, false) ? LIBINPUT_CONFIG_DWT_ENABLED :
++				LIBINPUT_CONFIG_DWT_DISABLED);
++}
++
++static void
++setmiddleemul(struct libinput_device *libinput_device)
++{
++	const char *val;
++
++	val = getenv("LIBINPUT_DEFAULT_MIDDLE_EMULATION");
++	if (val && val[0])
++		libinput_device_config_middle_emulation_set_enabled(libinput_device,
++			isenabled(val, false) ? LIBINPUT_CONFIG_MIDDLE_EMULATION_ENABLED :
++				LIBINPUT_CONFIG_MIDDLE_EMULATION_DISABLED);
++}
++
++static void
++setlefthanded(struct libinput_device *libinput_device)
++{
++	const char *val;
++
++	val = getenv("LIBINPUT_DEFAULT_LEFT_HANDED");
++	if (val && val[0])
++		libinput_device_config_left_handed_set(libinput_device,
++			isenabled(val, 0));
++}
++
++static void
++inputconfig(struct libinput_device *libinput_device)
++{
++	setclickmethod(libinput_device);
++	settap(libinput_device);
++	settapanddrag(libinput_device);
++	setnaturalscroll(libinput_device);
++	setaccelprofile(libinput_device);
++	setaccelspeed(libinput_device);
++	setscrollmethod(libinput_device);
++	setdwt(libinput_device);
++	setmiddleemul(libinput_device);
++	setlefthanded(libinput_device);
++}
++
++static void
++parsecolor(const char *val, float color[4])
++{
++	uint8_t r, g, b;
++	if (sscanf(val, "#%02hhx%02hhx%02hhx", &r, &g, &b) == 3) {
++		color[0] = (float)r / 0xFF;
++		color[1] = (float)g / 0xFF;
++		color[2] = (float)b / 0xFF;
++		color[3] = 1.0;
++	}
++}
++
++static void
++loadtheme(void)
++{
++	const char *val;
++	unsigned int tmp;
++
++	val = getenv("DWL_ROOT_COLOR");
++	if (val)
++		parsecolor(val, rootcolor);
++
++	val = getenv("DWL_BORDER_COLOR");
++	if (val)
++		parsecolor(val, bordercolor);
++
++	val = getenv("DWL_FOCUS_COLOR");
++	if (val)
++		parsecolor(val, focuscolor);
++
++	val = getenv("DWL_BORDER");
++	if (val && sscanf(val, "%u", &tmp) == 1)
++		borderpx = tmp;
++}
