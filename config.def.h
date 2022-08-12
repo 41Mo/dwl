@@ -5,8 +5,6 @@ static const int lockfullscreen     = 1;  /* 1 will force focus on the fullscree
 static float rootcolor[]      = {0.3, 0.3, 0.3, 1.0};
 static float bordercolor[]    = {0.5, 0.5, 0.5, 1.0};
 static float focuscolor[]     = {1.0, 0.0, 0.0, 1.0};
-static const char cursortheme[]     = {""}; /* theme from /usr/share/cursors/xorg-x11 */
-static const unsigned int cursorsize = 24;
 
 /* tagging */
 static const char *tags[] = { "1", "2", "3", "4", "5", "6", "7", "8", "9" };
@@ -48,6 +46,11 @@ static const struct xkb_rule_names xkb_rules = {
 
 static const int repeat_rate = 25;
 static const int repeat_delay = 600;
+
+/* Cursor */
+static const int cursor_timeout = 5;
+static const char cursortheme[]     = {""}; /* theme from /usr/share/cursors/xorg-x11 */
+static const unsigned int cursorsize = 24;
 
 /* Trackpad */
 static const int tap_to_click = 1;
