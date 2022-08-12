@@ -5,6 +5,8 @@ static const int lockfullscreen     = 1;  /* 1 will force focus on the fullscree
 static float rootcolor[]      = {0.3, 0.3, 0.3, 1.0};
 static float bordercolor[]    = {0.5, 0.5, 0.5, 1.0};
 static float focuscolor[]     = {1.0, 0.0, 0.0, 1.0};
+static const char cursortheme[]     = {""}; /* theme from /usr/share/cursors/xorg-x11 */
+static const unsigned int cursorsize = 24;
 
 /* tagging */
 static const char *tags[] = { "1", "2", "3", "4", "5", "6", "7", "8", "9" };
