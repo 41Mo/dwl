@@ -45,11 +45,11 @@ static const struct xkb_rule_names xkb_rules = {
 };
 
 static const int repeat_rate = 25;
-static const int repeat_delay = 600;
+static const int repeat_delay = 400;
 
 /* Cursor */
 static const int cursor_timeout = 5;
-static const char cursortheme[]     = {""}; /* theme from /usr/share/cursors/xorg-x11 */
+static const char cursortheme[]     = {"/usr/share/icons/Adwaita/cursors/default"}; /* theme from /usr/share/cursors/xorg-x11 */
 static const unsigned int cursorsize = 24;
 
 /* Trackpad */
@@ -59,12 +59,13 @@ static const int natural_scrolling = 0;
 /* Autostart */
 static const char *const autostart[] = {
 	    // example
-        // "sh", "-c", "swaybg --image /xap/local/background", NULL,
+        "sh", "-c", "swaybg --image /home/alex/.config/wallpapers/anime.jpg", NULL,
+        "sh", "-c", "/bin/yambar", NULL,
         NULL /* terminate */
 };
 
 /* If you want to use the windows key change this to WLR_MODIFIER_LOGO */
-#define MODKEY WLR_MODIFIER_ALT
+#define MODKEY WLR_MODIFIER_LOGO
 #define TAGKEYS(KEY,SKEY,TAG) \
 	{ MODKEY,                    KEY,            view,            {.ui = 1 << TAG} }, \
 	{ MODKEY|WLR_MODIFIER_CTRL,  KEY,            toggleview,      {.ui = 1 << TAG} }, \
@@ -76,13 +77,13 @@ static const char *const autostart[] = {
 
 /* commands */
 static const char *termcmd[] = { "alacritty", NULL };
-static const char *menucmd[] = { "bemenu-run", NULL };
+static const char *menucmd[] = { "wofi", "--show", "drun", NULL };
 
 static const Key keys[] = {
 	/* Note that Shift changes certain key codes: c -> C, 2 -> at, etc. */
 	/* modifier                  key                 function        argument */
 	{ MODKEY,                    XKB_KEY_p,          spawn,          {.v = menucmd} },
-	{ MODKEY|WLR_MODIFIER_SHIFT, XKB_KEY_Return,     spawn,          {.v = termcmd} },
+	{ MODKEY|WLR_MODIFIER_SHIFT, XKB_KEY_T,     spawn,          {.v = termcmd} },
 	{ MODKEY,                    XKB_KEY_j,          focusstack,     {.i = +1} },
 	{ MODKEY,                    XKB_KEY_k,          focusstack,     {.i = -1} },
 	{ MODKEY,                    XKB_KEY_i,          incnmaster,     {.i = +1} },
